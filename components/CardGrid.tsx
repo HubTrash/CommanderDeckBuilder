@@ -28,9 +28,9 @@ export function CardGrid({ cards, onAdd, onRemove, actionLabel = 'add' }: CardGr
                 >
                     {/* Image */}
                     <div className="aspect-[2.5/3.5] relative bg-slate-900">
-                        {card.details?.image_uris?.normal ? (
+                        {(card.details?.image_uris?.normal || card.details?.card_faces?.[0]?.image_uris?.normal) ? (
                             <img
-                                src={card.details.image_uris.normal}
+                                src={card.details?.image_uris?.normal || card.details?.card_faces?.[0]?.image_uris?.normal}
                                 alt={card.name}
                                 className="w-full h-full object-cover"
                                 loading="lazy"

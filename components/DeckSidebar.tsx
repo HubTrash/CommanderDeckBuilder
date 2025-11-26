@@ -9,9 +9,10 @@ interface DeckSidebarProps {
     onRemoveCard: (card: CollectionCard) => void;
     onRemoveCommander: () => void;
     onRemoveMissingCard: (cardName: string) => void;
+    onClearDeck: () => void;
 }
 
-export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMissingCard }: DeckSidebarProps) {
+export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMissingCard, onClearDeck }: DeckSidebarProps) {
     const [hoveredCard, setHoveredCard] = useState<CollectionCard | null>(null);
     const totalCards = deck.cards.reduce((acc, card) => acc + 1, 0) + (deck.commander ? 1 : 0);
 
@@ -66,14 +67,28 @@ export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMis
                             {totalCards}/100
                         </span>
                     </div>
-                    <button
-                        onClick={downloadDeck}
-                        disabled={totalCards === 0}
-                        className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        <Download className="w-4 h-4" />
-                        Export List
-                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                        <button
+                            onClick={downloadDeck}
+                            disabled={totalCards === 0}
+                            className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <Download className="w-4 h-4" />
+                            Export
+                        </button>
+                        <button
+                            onClick={() => {
+                                if (confirm('Are you sure you want to clear the entire deck?')) {
+                                    onClearDeck();
+                                }
+                            }}
+                            disabled={totalCards === 0}
+                            className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-red-900/30 text-slate-300 hover:text-red-400 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                            Clear
+                        </button>
+                    </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-6">
@@ -180,11 +195,11 @@ export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMis
             </div>
 
             {/* Hover Preview */}
-            {hoveredCard && hoveredCard.details?.image_uris?.normal && (
+            {hoveredCard && (hoveredCard.details?.image_uris?.normal || hoveredCard.details?.card_faces?.[0]?.image_uris?.normal) && (
                 <div className="fixed right-80 top-1/2 -translate-y-1/2 z-30 mr-4 pointer-events-none">
                     <div className="relative rounded-xl overflow-hidden shadow-2xl border-4 border-slate-900/50 w-64">
                         <img
-                            src={hoveredCard.details.image_uris.normal}
+                            src={hoveredCard.details?.image_uris?.normal || hoveredCard.details?.card_faces?.[0]?.image_uris?.normal}
                             alt={hoveredCard.name}
                             className="w-full h-auto"
                         />

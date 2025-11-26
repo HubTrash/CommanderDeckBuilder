@@ -128,6 +128,7 @@ export default function BuilderPage() {
     const removeCommander = () => {
         setDeck(prev => ({ ...prev, commander: undefined }));
         setActiveTab('commander');
+        setSelectedColors([]);
     };
 
     const handleAutoBuild = async () => {
@@ -346,20 +347,6 @@ export default function BuilderPage() {
                             </h2>
                             {activeTab === 'library' && deck.commander && (
                                 <div className="flex items-center gap-4">
-                                    <button
-                                        onClick={handleAutoBuild}
-                                        disabled={isAutoBuilding}
-                                        className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl"
-                                    >
-                                        <Sparkles className="w-4 h-4" />
-                                        {isAutoBuilding ? 'Building...' : 'Auto-Build'}
-                                    </button>
-                                    <button
-                                        onClick={handleBalanceDeck}
-                                        className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-lg hover:shadow-xl"
-                                    >
-                                        Balance Deck
-                                    </button>
                                     <div className="text-sm text-slate-400 flex items-center gap-2">
                                         <Filter className="w-4 h-4" />
                                         Filtered by identity:
@@ -382,6 +369,26 @@ export default function BuilderPage() {
                 </main>
             </div>
 
+            {/* Floating Action Buttons */}
+            {activeTab === 'library' && deck.commander && (
+                <div className="fixed bottom-8 right-96 flex gap-4 z-50">
+                    <button
+                        onClick={handleAutoBuild}
+                        disabled={isAutoBuilding}
+                        className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white px-6 py-3 rounded-full font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-2xl hover:shadow-violet-500/20 hover:-translate-y-1 border border-violet-400/20 backdrop-blur-sm"
+                    >
+                        <Sparkles className="w-5 h-5" />
+                        {isAutoBuilding ? 'Building...' : 'Auto-Build'}
+                    </button>
+                    <button
+                        onClick={handleBalanceDeck}
+                        className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-6 py-3 rounded-full font-bold transition-all shadow-2xl hover:shadow-emerald-500/20 hover:-translate-y-1 border border-emerald-400/20 backdrop-blur-sm"
+                    >
+                        Balance Deck
+                    </button>
+                </div>
+            )}
+
             {/* Sidebar */}
             <DeckSidebar
                 deck={deck}
@@ -392,6 +399,11 @@ export default function BuilderPage() {
                         ...prev,
                         missingCards: prev.missingCards?.filter(c => c.name !== cardName)
                     }));
+                }}
+                onClearDeck={() => {
+                    setDeck({ cards: [], colors: [], missingCards: [] });
+                    setActiveTab('commander');
+                    setSelectedColors([]);
                 }}
             />
         </div>

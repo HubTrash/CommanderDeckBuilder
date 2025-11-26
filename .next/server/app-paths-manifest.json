@@ -1,7 +1,4 @@
 {
   "/builder/page": "app/builder/page.js",
-  "/page": "app/page.js",
-  "/api/upload/route": "app/api/upload/route.js",
-  "/api/collection/route": "app/api/collection/route.js",
-  "/api/auto-build/route": "app/api/auto-build/route.js"
+  "/page": "app/page.js"
 }
