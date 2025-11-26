@@ -147,12 +147,22 @@ export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMis
                                 <span>{deck.missingCards.length}</span>
                             </h3>
                             <ul className="space-y-1">
-                                {deck.missingCards.map((cardName, idx) => (
-                                    <li key={idx} className="group text-sm text-amber-300/70 p-1 rounded cursor-default flex items-center gap-2 hover:bg-slate-800/50">
+                                {deck.missingCards.map((card, idx) => (
+                                    <li
+                                        key={idx}
+                                        className="group text-sm text-amber-300/70 p-1 rounded cursor-default flex items-center gap-2 hover:bg-slate-800/50 relative"
+                                        onMouseEnter={() => setHoveredCard({
+                                            name: card.name,
+                                            scryfallId: card.id,
+                                            quantity: 0,
+                                            details: card
+                                        })}
+                                        onMouseLeave={() => setHoveredCard(null)}
+                                    >
                                         <span className="text-amber-500">⚠</span>
-                                        <span className="truncate flex-1">{cardName}</span>
+                                        <span className="truncate flex-1">{card.name}</span>
                                         <button
-                                            onClick={() => onRemoveMissingCard(cardName)}
+                                            onClick={() => onRemoveMissingCard(card.name)}
                                             className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all px-1"
                                             title="Remove from list"
                                         >

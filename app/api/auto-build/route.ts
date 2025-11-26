@@ -92,28 +92,81 @@ export async function POST(request: NextRequest) {
         //
         // Categorize
         //
+        //
+        // ---- STEP 1.5: Fetch Staples (NEW) ----
+        //
+        const TARGET_STAPLES = 15;
+        const staples: ScryfallCard[] = [];
+        const suggestedDetails: ScryfallCard[] = [];
+
+        try {
+            const colorQuery = commanderColors.length === 0 ? "id:c" : `id<=${commanderColors.join("")}`;
+            // Fetch slightly more to ensure we get non-lands
+            const staplesResp = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`${colorQuery} legal:commander -t:land -t:basic`)}&order=edhrec&dir=asc&page=1`);
+            if (staplesResp.ok) {
+                const data = await staplesResp.json();
+                // Filter out commander itself just in case
+                const list = data.data.filter((c: any) => c.name !== commanderName).slice(0, TARGET_STAPLES);
+                staples.push(...list);
+                suggestedDetails.push(...list);
+            }
+        } catch (e) {
+            console.error("Failed to fetch staples", e);
+        }
+
+        // Helper predicates
+        const isCreature = (t: string, n: string) => t.includes("Creature") && !t.includes("Legendary");
+        const isRemoval = (t: string, n: string) => /Instant|Sorcery/.test(t) && /destroy|exile|kill|terminate|path|swords|wrath|damnation|wipe/.test(n.toLowerCase());
+        const isRamp = (t: string, n: string) => /(Artifact|Enchantment|Sorcery)/.test(t) && /(sol ring|mana|ramp|cultivate|kodama|reach|signet|talisman|arcane|fellwar)/.test(n.toLowerCase());
+        const isDraw = (n: string) => /(draw|rhystic|study|mystic|remora|phyrexian arena|necropotence|sylvan library)/.test(n.toLowerCase());
+
+        // Add staples and count
+        let rampCount = 0;
+        let drawCount = 0;
+        let removalCount = 0;
+        let creatureCount = 0;
+
+        staples.forEach(c => {
+            cardNames.push(c.name);
+            const t = c.type_line || "";
+            const n = c.name;
+
+            if (isRamp(t, n)) rampCount++;
+            else if (isDraw(n)) drawCount++;
+            else if (isRemoval(t, n)) removalCount++;
+            else if (isCreature(t, n)) creatureCount++;
+        });
+
+        console.log(`Added ${staples.length} staples. Ramp: ${rampCount}, Draw: ${drawCount}, Removal: ${removalCount}, Creatures: ${creatureCount}`);
+
+        //
+        // Categorize Collection (excluding staples)
+        //
         const creatures = uniqueEligible.filter((c) => {
+            if (cardNames.includes(c.name)) return false;
             const t = c.details?.type_line ?? "";
-            return t.includes("Creature") && !t.includes("Legendary");
+            const n = c.name;
+            return isCreature(t, n);
         });
 
         const removal = uniqueEligible.filter((c) => {
+            if (cardNames.includes(c.name)) return false;
             const t = c.details?.type_line ?? "";
-            const n = c.name.toLowerCase();
-            return /Instant|Sorcery/.test(t) &&
-                /destroy|exile|kill|terminate|path|swords|wrath|damnation|wipe/.test(n);
+            const n = c.name;
+            return isRemoval(t, n);
         });
 
         const ramp = uniqueEligible.filter((c) => {
+            if (cardNames.includes(c.name)) return false;
             const t = c.details?.type_line ?? "";
-            const n = c.name.toLowerCase();
-            return /(Artifact|Enchantment|Sorcery)/.test(t) &&
-                /(sol ring|mana|ramp|cultivate|kodama|reach|signet|talisman|arcane|fellwar)/.test(n);
+            const n = c.name;
+            return isRamp(t, n);
         });
 
         const draw = uniqueEligible.filter((c) => {
-            const n = c.name.toLowerCase();
-            return /(draw|rhystic|study|mystic|remora|phyrexian arena|necropotence|sylvan library)/.test(n);
+            if (cardNames.includes(c.name)) return false;
+            const n = c.name;
+            return isDraw(n);
         });
 
         const nonBasicLands = uniqueEligible.filter((c) => {
@@ -122,7 +175,8 @@ export async function POST(request: NextRequest) {
         });
 
         const other = uniqueEligible.filter(
-            (c) => !creatures.includes(c) && !removal.includes(c) &&
+            (c) => !cardNames.includes(c.name) &&
+                !creatures.includes(c) && !removal.includes(c) &&
                 !ramp.includes(c) && !draw.includes(c) && !nonBasicLands.includes(c)
         );
 
@@ -136,14 +190,17 @@ export async function POST(request: NextRequest) {
         };
 
         //
-        // Build non-land section using ratios
+        // Build non-land section using ratios (adjusted for staples)
         //
         let added = 0;
-        added += addCards(ramp, 10);
-        added += addCards(draw, 5);
-        added += addCards(removal, 10);
-        added += addCards(creatures, 30);
-        added += addCards(other, TARGET_NON_LAND - added);
+        added += addCards(ramp, Math.max(0, 10 - rampCount));
+        added += addCards(draw, Math.max(0, 5 - drawCount));
+        added += addCards(removal, Math.max(0, 10 - removalCount));
+        added += addCards(creatures, Math.max(0, 30 - creatureCount));
+
+        // Fill remainder with other cards from collection
+        const remainingSlots = Math.max(0, TARGET_NON_LAND - cardNames.length);
+        added += addCards(other, remainingSlots);
 
         console.log("Added from collection:", added);
 
@@ -175,10 +232,12 @@ export async function POST(request: NextRequest) {
                         c.name.toLowerCase() !== commanderName.toLowerCase() &&
                         !cardNames.includes(c.name)
                     )
-                    .slice(0, need)
-                    .map((c) => c.name);
+                    .slice(0, need);
 
-                cardNames.push(...suggestions);
+                suggestions.forEach(c => {
+                    cardNames.push(c.name);
+                    suggestedDetails.push(c);
+                });
             }
         }
 
@@ -196,7 +255,7 @@ export async function POST(request: NextRequest) {
         let landCount = 0;
 
         // add non-basic from collection
-        const eligibleNonBasicLands = collection.filter((c) => {
+        const eligibleNonBasicLands = uniqueEligible.filter((c) => {
             const type = c.details?.type_line ?? "";
             const ci = c.details?.color_identity ?? [];
             return (
@@ -232,6 +291,7 @@ export async function POST(request: NextRequest) {
             success: true,
             deckName: `Auto-built ${commanderName} deck`,
             cardNames,
+            suggestedDetails,
             deckUrl: `https://edhrec.com/commanders/${commander.name
                 .toLowerCase()
                 .replace(/[^a-z0-9]+/g, "-")}`,

@@ -149,10 +149,10 @@ export default function BuilderPage() {
             }
 
             const data = await response.json();
-            const { cardNames } = data;
+            const { cardNames, suggestedDetails = [] } = data;
 
             const addedCards: CollectionCard[] = [];
-            const missing: string[] = [];
+            const missing: ScryfallCard[] = [];
 
             // Match suggested cards with collection
             cardNames.forEach((cardName: string) => {
@@ -167,7 +167,15 @@ export default function BuilderPage() {
                         addedCards.push(cardInCollection);
                     }
                 } else {
-                    missing.push(cardName);
+                    // Find details in suggestedDetails
+                    const details = suggestedDetails.find((d: ScryfallCard) => d.name === cardName);
+                    if (details) {
+                        missing.push(details);
+                    } else {
+                        // Fallback for cards without details (shouldn't happen often)
+                        // We create a minimal ScryfallCard object or skip
+                        console.warn(`No details found for missing card: ${cardName}`);
+                    }
                 }
             });
 
@@ -382,7 +390,7 @@ export default function BuilderPage() {
                 onRemoveMissingCard={(cardName) => {
                     setDeck(prev => ({
                         ...prev,
-                        missingCards: prev.missingCards?.filter(c => c !== cardName)
+                        missingCards: prev.missingCards?.filter(c => c.name !== cardName)
                     }));
                 }}
             />

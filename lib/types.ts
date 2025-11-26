@@ -50,5 +50,5 @@ export interface Deck {
     commander?: ScryfallCard;
     cards: CollectionCard[];
     colors: string[];
-    missingCards?: string[]; // Card names not in collection
+    missingCards?: ScryfallCard[]; // Cards not in collection
 }
