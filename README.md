@@ -1,10 +1,10 @@
 # Commander Deck Builder
 
-A powerful Next.js application designed to help Magic: The Gathering players build Commander decks using their own card collection. Upload your collection from Manabox, select a commander, and let the app help you brew the perfect deck.
+A powerful Next.js application designed to help Magic: The Gathering players build Commander decks using their own card collection. Upload your collection from Manabox or any other source that exports a CSV or txt file, select a commander, and let the app help you brew the perfect deck.
 
 ## Features
 
-- **Collection Management**: Easily upload your card collection using a Manabox CSV export.
+- **Collection Management**: Easily upload your card collection using a Manabox CSV export or any other source that exports a CSV or txt file.
 - **Commander Selection**: Browse your legendary creatures and planeswalkers to find your next commander. Filter by color identity to narrow down your choices.
 - **Smart Deck Building**:
   - **Color Identity Enforcement**: Automatically filters your library to only show cards compatible with your commander's color identity.
