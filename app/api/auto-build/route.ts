@@ -9,6 +9,8 @@ interface ScryfallCard {
     name: string;
     type_line: string;
     color_identity: string[];
+    oracle_text?: string;
+    card_faces?: { oracle_text?: string }[];
     edhrec_rank?: number;
     mana_cost?: string;
 }
@@ -20,6 +22,8 @@ interface CollectionCard {
         type_line?: string;
         color_identity?: string[];
         mana_cost?: string;
+        oracle_text?: string;
+        card_faces?: { oracle_text?: string }[];
     };
 }
 
@@ -71,6 +75,42 @@ export async function POST(request: NextRequest) {
         const TARGET_LANDS = 39;
         const cardNames: string[] = [];
 
+        // Helper to check relevance
+        const isCardRelevant = (cardObj: any) => {
+            if (!cardObj) return true;
+            let text = cardObj.oracle_text || "";
+            if (!text && cardObj.card_faces) {
+                text = cardObj.card_faces.map((f: any) => f.oracle_text || "").join("\n");
+            }
+
+            const colorMap: Record<string, string> = {
+                'White': 'W', 'Blue': 'U', 'Black': 'B', 'Red': 'R', 'Green': 'G'
+            };
+
+            for (const [colorName, colorCode] of Object.entries(colorMap)) {
+                if (!commanderColors.includes(colorCode)) {
+                    // If the card mentions the missing color
+                    const regex = new RegExp(`\\b${colorName}\\b`, 'i');
+                    if (regex.test(text)) {
+                        // Allow exceptions
+                        if (
+                            /protection from/i.test(text) ||
+                            /destroy/i.test(text) ||
+                            /exile/i.test(text) ||
+                            /opponent/i.test(text) ||
+                            /choose a color/i.test(text) ||
+                            /any color/i.test(text) ||
+                            /landwalk/i.test(text)
+                        ) {
+                            continue;
+                        }
+                        return false;
+                    }
+                }
+            }
+            return true;
+        };
+
         //
         // ---- STEP 1: Filter collection ----
         //
@@ -81,7 +121,9 @@ export async function POST(request: NextRequest) {
 
             if (card.name.toLowerCase() === commanderName.toLowerCase()) return false;
             if (type.includes("Basic Land")) return false;
-            return ci.every((c) => commanderColors.includes(c));
+            if (!ci.every((c) => commanderColors.includes(c))) return false;
+
+            return isCardRelevant(card.details);
         });
 
         // Singleton rule: dedupe by name
@@ -106,7 +148,10 @@ export async function POST(request: NextRequest) {
             if (staplesResp.ok) {
                 const data = await staplesResp.json();
                 // Filter out commander itself just in case
-                const list = data.data.filter((c: any) => c.name !== commanderName).slice(0, TARGET_STAPLES);
+                const list = data.data.filter((c: any) =>
+                    c.name !== commanderName &&
+                    isCardRelevant(c)
+                ).slice(0, TARGET_STAPLES);
                 staples.push(...list);
                 suggestedDetails.push(...list);
             }
@@ -230,7 +275,8 @@ export async function POST(request: NextRequest) {
                 const suggestions = data.data
                     .filter((c) =>
                         c.name.toLowerCase() !== commanderName.toLowerCase() &&
-                        !cardNames.includes(c.name)
+                        !cardNames.includes(c.name) &&
+                        isCardRelevant(c)
                     )
                     .slice(0, need);
 

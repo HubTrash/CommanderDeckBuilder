@@ -155,26 +155,74 @@ export default function BuilderPage() {
             const addedCards: CollectionCard[] = [];
             const missing: ScryfallCard[] = [];
 
+            // Track added counts to handle basic lands and singleton enforcement
+            const addedCounts: Record<string, number> = {};
+
             // Match suggested cards with collection
             cardNames.forEach((cardName: string) => {
+                const isBasicLand = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'].includes(cardName);
+
+                // If not basic land and already added, skip (enforce singleton for non-basics)
+                if (!isBasicLand && addedCounts[cardName]) return;
+
                 const cardInCollection = collection.find(
                     c => c.name.toLowerCase() === cardName.toLowerCase()
                 );
 
                 if (cardInCollection) {
-                    // Check if already in deck
-                    const alreadyInDeck = deck.cards.some(dc => dc.scryfallId === cardInCollection.scryfallId);
-                    if (!alreadyInDeck) {
-                        addedCards.push(cardInCollection);
+                    // Check if already in deck (for non-basics)
+                    const alreadyInDeck = deck.cards.some(dc => dc.name === cardInCollection.name);
+
+                    if (isBasicLand || !alreadyInDeck) {
+                        // For basic lands, we can add multiple. For others, just one.
+                        // If we are adding a basic land from collection, we clone it to ensure unique IDs if needed, 
+                        // or just reuse if we don't care about unique IDs for collection items (but we should for React keys)
+                        // Better to create a copy for the deck.
+                        addedCards.push({
+                            ...cardInCollection,
+                            scryfallId: isBasicLand ? `${cardInCollection.scryfallId}-${Math.random()}` : cardInCollection.scryfallId
+                        });
+                        addedCounts[cardName] = (addedCounts[cardName] || 0) + 1;
                     }
                 } else {
                     // Find details in suggestedDetails
                     const details = suggestedDetails.find((d: ScryfallCard) => d.name === cardName);
                     if (details) {
                         missing.push(details);
+                        addedCounts[cardName] = (addedCounts[cardName] || 0) + 1;
+                    } else if (isBasicLand) {
+                        // Generate dummy basic land
+                        const basicMap: Record<string, string> = {
+                            'Plains': 'W', 'Island': 'U', 'Swamp': 'B', 'Mountain': 'R', 'Forest': 'G', 'Wastes': 'C'
+                        };
+                        const color = basicMap[cardName] || 'C';
+
+                        addedCards.push({
+                            quantity: 1,
+                            name: cardName,
+                            scryfallId: `basic-${cardName}-${Math.random()}`,
+                            details: {
+                                id: `basic-${cardName}-dummy`,
+                                name: cardName,
+                                cmc: 0,
+                                type_line: `Basic Land — ${cardName}`,
+                                color_identity: [color],
+                                rarity: 'common',
+                                set_name: 'Basic Lands',
+                                set: 'basic',
+                                collector_number: '0',
+                                image_uris: {
+                                    small: `https://cards.scryfall.io/large/front/dummy/${cardName.toLowerCase()}.jpg`, // Placeholder, won't load but prevents crash
+                                    normal: `https://cards.scryfall.io/large/front/dummy/${cardName.toLowerCase()}.jpg`,
+                                    large: '',
+                                    png: '',
+                                    art_crop: '',
+                                    border_crop: ''
+                                }
+                            } as ScryfallCard
+                        });
+                        addedCounts[cardName] = (addedCounts[cardName] || 0) + 1;
                     } else {
-                        // Fallback for cards without details (shouldn't happen often)
-                        // We create a minimal ScryfallCard object or skip
                         console.warn(`No details found for missing card: ${cardName}`);
                     }
                 }
@@ -201,52 +249,86 @@ export default function BuilderPage() {
         const TARGET_LANDS = 35;
         const TARGET_TOTAL = 99; // 99 + 1 commander = 100
 
-        // Separate lands from non-lands
-        const lands = deck.cards.filter(c => c.details?.type_line?.includes('Land'));
-        const nonLands = deck.cards.filter(c => !c.details?.type_line?.includes('Land'));
+        // Separate lands from non-lands in current deck
+        const currentLands = deck.cards.filter(c => c.details?.type_line?.includes('Land'));
 
-        // Keep only TARGET_LANDS lands (prioritize non-basic lands)
-        const basicLands = lands.filter(c => c.details?.type_line?.includes('Basic Land'));
-        const nonBasicLands = lands.filter(c => !c.details?.type_line?.includes('Basic Land'));
+        // Calculate needs
+        const landsNeeded = Math.max(0, TARGET_LANDS - currentLands.length);
+        const totalSlotsAvailable = TARGET_TOTAL - deck.cards.length;
 
-        let keptLands: CollectionCard[] = [];
-        if (nonBasicLands.length >= TARGET_LANDS) {
-            keptLands = nonBasicLands.slice(0, TARGET_LANDS);
-        } else {
-            keptLands = [...nonBasicLands, ...basicLands.slice(0, TARGET_LANDS - nonBasicLands.length)];
-        }
+        // Get available cards from collection
+        const commanderIdentity = deck.commander.color_identity || [];
 
-        // Calculate how many more cards we need
-        const currentTotal = keptLands.length + nonLands.length;
-        const cardsNeeded = TARGET_TOTAL - currentTotal;
+        console.log('Balance Deck Debug:', {
+            currentLandsCount: currentLands.length,
+            currentTotalCards: deck.cards.length,
+            landsNeeded,
+            totalSlotsAvailable,
+            commanderIdentity
+        });
 
-        if (cardsNeeded <= 0) {
-            // We have enough or too many cards, just update with balanced lands
-            setDeck(prev => ({
-                ...prev,
-                cards: [...keptLands, ...nonLands.slice(0, TARGET_TOTAL - keptLands.length)],
-                missingCards: [] // Clear missing cards since deck is now complete
-            }));
+        if (totalSlotsAvailable <= 0) {
+            alert("Deck is already full!");
             return;
         }
 
-        // Get available cards from collection that match commander's color identity
-        const commanderIdentity = deck.commander.color_identity || [];
+        // Helper to check relevance
+        const isCardRelevant = (card: CollectionCard) => {
+            let text = card.details?.oracle_text || "";
+            if (!text && card.details?.card_faces) {
+                text = card.details.card_faces.map(f => f.oracle_text).join("\n");
+            }
+
+            const colorMap: Record<string, string> = {
+                'White': 'W', 'Blue': 'U', 'Black': 'B', 'Red': 'R', 'Green': 'G'
+            };
+
+            for (const [colorName, colorCode] of Object.entries(colorMap)) {
+                if (!commanderIdentity.includes(colorCode)) {
+                    const regex = new RegExp(`\\b${colorName}\\b`, 'i');
+                    if (regex.test(text)) {
+                        if (
+                            /protection from/i.test(text) ||
+                            /destroy/i.test(text) ||
+                            /exile/i.test(text) ||
+                            /opponent/i.test(text) ||
+                            /choose a color/i.test(text) ||
+                            /any color/i.test(text) ||
+                            /landwalk/i.test(text)
+                        ) {
+                            continue;
+                        }
+                        return false;
+                    }
+                }
+            }
+            return true;
+        };
+
         const availableCards = collection.filter(c => {
-            // Skip if already in deck
-            if (deck.cards.some(dc => dc.name === c.name)) return false;
-            // Skip if it's the commander
+            // Allow basic lands even if already in deck (infinite supply)
+            const isBasicLand = c.details?.type_line?.includes('Basic Land');
+            if (!isBasicLand && deck.cards.some(dc => dc.name === c.name)) return false;
             if (c.name === deck.commander?.name) return false;
-            // Check color identity
             const identity = c.details?.color_identity || [];
-            return identity.every(color => commanderIdentity.includes(color));
+            if (!identity.every(color => commanderIdentity.includes(color))) return false;
+            if (!isCardRelevant(c)) return false;
+            return true;
         });
 
-        // Prioritize non-land cards
-        const availableNonLands = availableCards.filter(c => !c.details?.type_line?.includes('Land'));
-        const availableLands = availableCards.filter(c => c.details?.type_line?.includes('Land'));
+        // Deduplicate available cards (but NOT basic lands)
+        const uniqueAvailable = Array.from(
+            new Map(
+                availableCards
+                    .filter(c => !c.details?.type_line?.includes('Basic Land'))
+                    .map(c => [c.name, c])
+            ).values()
+        );
 
-        // Sort by rarity: Mythic > Rare > Uncommon > Common
+        const availableNonBasicLands = uniqueAvailable.filter(c => c.details?.type_line?.includes('Land'));
+        const availableNonLands = uniqueAvailable.filter(c => !c.details?.type_line?.includes('Land'));
+
+        // Sort non-lands by rarity
         const rarityScore = (rarity?: string) => {
             switch (rarity) {
                 case 'mythic': return 4;
@@ -255,35 +337,102 @@ export default function BuilderPage() {
                 default: return 1;
             }
         };
+        availableNonLands.sort((a, b) => rarityScore(b.details?.rarity) - rarityScore(a.details?.rarity));
 
-        availableNonLands.sort((a, b) => {
-            return rarityScore(b.details?.rarity) - rarityScore(a.details?.rarity);
-        });
-
-        // Add cards to fill the deck
         const cardsToAdd: CollectionCard[] = [];
+        let slotsLeft = totalSlotsAvailable;
 
-        // First, add non-lands
-        for (let i = 0; i < Math.min(cardsNeeded, availableNonLands.length); i++) {
-            cardsToAdd.push(availableNonLands[i]);
+        // 1. Fill Lands First
+        // We want to add up to 'landsNeeded', but limited by 'slotsLeft'
+        const landsToAddCount = Math.min(landsNeeded, slotsLeft);
+
+        console.log('Land filling:', { landsToAddCount, availableNonBasicLands: availableNonBasicLands.length });
+
+        // Add a mix: up to 50% non-basic lands, rest basic lands
+        const maxNonBasics = Math.floor(landsToAddCount * 0.5); // 50% max non-basics
+        const nonBasicsToAdd = Math.min(maxNonBasics, availableNonBasicLands.length);
+
+        // Add non-basic lands from collection
+        for (let i = 0; i < nonBasicsToAdd; i++) {
+            cardsToAdd.push(availableNonBasicLands[i]);
         }
 
-        // If we still need more, add lands
-        const stillNeeded = cardsNeeded - cardsToAdd.length;
-        if (stillNeeded > 0) {
-            for (let i = 0; i < Math.min(stillNeeded, availableLands.length); i++) {
-                cardsToAdd.push(availableLands[i]);
+        // Fill remaining land slots with Basics (infinite supply)
+        const landsStillNeeded = landsToAddCount - cardsToAdd.length;
+        console.log('Basic lands needed:', landsStillNeeded, 'Non-basics added:', nonBasicsToAdd);
+
+        if (landsStillNeeded > 0 && commanderIdentity.length > 0) {
+            const basicMap: Record<string, string> = {
+                W: "Plains",
+                U: "Island",
+                B: "Swamp",
+                R: "Mountain",
+                G: "Forest",
+            };
+
+            const perColor = Math.floor(landsStillNeeded / commanderIdentity.length);
+            let extra = landsStillNeeded % commanderIdentity.length;
+
+            console.log('Generating basics:', { perColor, extra, colors: commanderIdentity });
+
+            commanderIdentity.forEach(color => {
+                const count = perColor + (extra > 0 ? 1 : 0);
+                extra--;
+                const landName = basicMap[color];
+
+                console.log(`Adding ${count} ${landName}`);
+
+                const realLand = collection.find(c => c.name === landName && c.details?.type_line?.includes('Basic'));
+
+                for (let k = 0; k < count; k++) {
+                    cardsToAdd.push({
+                        quantity: 1,
+                        name: landName,
+                        scryfallId: `basic-${landName}-${Math.random()}`,
+                        details: realLand?.details || {
+                            id: `basic-${landName}-dummy`,
+                            name: landName,
+                            cmc: 0,
+                            type_line: `Basic Land — ${landName}`,
+                            color_identity: [color],
+                            rarity: 'common',
+                            set_name: 'Basic Lands',
+                            set: 'basic',
+                            collector_number: '0',
+                            image_uris: {
+                                small: '',
+                                normal: '',
+                                large: '',
+                                png: '',
+                                art_crop: '',
+                                border_crop: ''
+                            }
+                        } as ScryfallCard
+                    });
+                }
+            });
+        }
+
+        // Update slotsLeft
+        slotsLeft -= cardsToAdd.length;
+
+        // 2. Fill remaining slots with Non-Lands
+        if (slotsLeft > 0) {
+            for (let i = 0; i < Math.min(slotsLeft, availableNonLands.length); i++) {
+                cardsToAdd.push(availableNonLands[i]);
             }
         }
+
+        console.log('Total cards to add:', cardsToAdd.length, 'Lands:', cardsToAdd.filter(c => c.details?.type_line?.includes('Land')).length);
 
         // Update deck
         setDeck(prev => ({
             ...prev,
-            cards: [...keptLands, ...nonLands, ...cardsToAdd],
-            missingCards: [] // Clear missing cards since deck is now complete with available cards
+            cards: [...prev.cards, ...cardsToAdd],
+            missingCards: []
         }));
 
-        alert(`Deck balanced! Lands: ${keptLands.length}, Non-lands: ${nonLands.length + cardsToAdd.length}, Total: ${keptLands.length + nonLands.length + cardsToAdd.length + 1} (including commander)`);
+        alert(`Deck balanced! Added ${cardsToAdd.length} cards (${cardsToAdd.filter(c => c.details?.type_line?.includes('Land')).length} lands).`);
     };
 
     return (
