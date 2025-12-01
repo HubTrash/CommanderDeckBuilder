@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { CollectionCard, Deck } from '@/lib/types';
 import { Trash2, Download } from 'lucide-react';
 
+import { SaltMeter } from './SaltMeter';
+
 interface DeckSidebarProps {
     deck: Deck;
     onRemoveCard: (card: CollectionCard) => void;
@@ -60,13 +62,16 @@ export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMis
     return (
         <>
             <div className="w-80 bg-slate-900 border-l border-slate-800 h-screen flex flex-col fixed right-0 top-0 z-20 shadow-2xl">
-                <div className="p-4 border-b border-slate-800 bg-slate-900/95 backdrop-blur">
-                    <div className="flex justify-between items-center mb-2">
+                <div className="p-4 border-b border-slate-800 bg-slate-900/95 backdrop-blur space-y-4">
+                    <div className="flex justify-between items-center">
                         <h2 className="font-bold text-lg text-slate-200">Your Deck</h2>
                         <span className={`text-sm font-mono px-2 py-1 rounded ${totalCards === 100 ? 'bg-green-500/20 text-green-400' : 'bg-slate-800 text-slate-400'}`}>
                             {totalCards}/100
                         </span>
                     </div>
+
+                    <SaltMeter cards={deck.cards} />
+
                     <div className="grid grid-cols-2 gap-2">
                         <button
                             onClick={downloadDeck}

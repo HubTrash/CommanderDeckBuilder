@@ -6,7 +6,8 @@ import { CollectionCard, Deck, ScryfallCard } from '@/lib/types';
 import { ColorPicker } from '@/components/ColorPicker';
 import { CardGrid } from '@/components/CardGrid';
 import { DeckSidebar } from '@/components/DeckSidebar';
-import { ArrowLeft, Filter, Search, Sparkles } from 'lucide-react';
+import { GoldfishModal } from '@/components/GoldfishModal';
+import { ArrowLeft, Filter, Search, Sparkles, Dices, Hand } from 'lucide-react';
 
 export default function BuilderPage() {
     const router = useRouter();
@@ -16,6 +17,8 @@ export default function BuilderPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [activeTab, setActiveTab] = useState<'commander' | 'library'>('commander');
     const [isAutoBuilding, setIsAutoBuilding] = useState(false);
+    const [isGoldfishOpen, setIsGoldfishOpen] = useState(false);
+    const [chaosLoading, setChaosLoading] = useState(false);
 
     // Load collection on mount
     useEffect(() => {
@@ -435,8 +438,55 @@ export default function BuilderPage() {
         alert(`Deck balanced! Added ${cardsToAdd.length} cards (${cardsToAdd.filter(c => c.details?.type_line?.includes('Land')).length} lands).`);
     };
 
+    const handleChaosOrb = async () => {
+        if (!deck.commander) return;
+        setChaosLoading(true);
+        try {
+            const colors = deck.commander.color_identity.join('');
+            // If colorless, use id:c. Otherwise id:wubrg
+            const query = `commander:${colors || 'c'} (game:paper) -type:conspiracy -type:scheme -type:vanguard`;
+            const res = await fetch(`https://api.scryfall.com/cards/random?q=${encodeURIComponent(query)}`);
+            const card = await res.json();
+
+            if (card && card.id) {
+                addToDeck({
+                    name: card.name,
+                    quantity: 1,
+                    scryfallId: card.id,
+                    details: card
+                });
+                // alert(`The Chaos Orb summoned: ${card.name}!`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert("The Chaos Orb fizzled...");
+        } finally {
+            setChaosLoading(false);
+        }
+    };
+
+    const getThemeClass = () => {
+        if (!deck.commander) return "bg-slate-950";
+        const colors = deck.commander.color_identity || [];
+        if (colors.length === 0) return "bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-slate-900 via-zinc-900 to-slate-950";
+
+        // Dynamic gradients based on primary color
+        const colorMap: Record<string, string> = {
+            'W': 'from-slate-900 via-yellow-950/20 to-slate-950',
+            'U': 'from-slate-900 via-blue-950/20 to-slate-950',
+            'B': 'from-slate-900 via-purple-950/20 to-slate-950',
+            'R': 'from-slate-900 via-red-950/20 to-slate-950',
+            'G': 'from-slate-900 via-green-950/20 to-slate-950'
+        };
+
+        // For multicolor, just pick the first one for now, or a special multi one
+        if (colors.length > 1) return "bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-slate-900 via-fuchsia-950/20 to-slate-950";
+
+        return `bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] ${colorMap[colors[0]] || 'from-slate-900 to-slate-950'}`;
+    };
+
     return (
-        <div className="min-h-screen bg-slate-950 text-slate-200 flex">
+        <div className={`min-h-screen text-slate-200 flex transition-colors duration-1000 ${getThemeClass()}`}>
             {/* Main Content */}
             <div className="flex-1 mr-80 flex flex-col h-screen overflow-hidden">
                 {/* Header */}
@@ -535,6 +585,21 @@ export default function BuilderPage() {
                     >
                         Balance Deck
                     </button>
+                    <button
+                        onClick={handleChaosOrb}
+                        disabled={chaosLoading}
+                        className="flex items-center gap-2 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white px-4 py-3 rounded-full font-bold transition-all shadow-2xl hover:shadow-orange-500/20 hover:-translate-y-1 border border-orange-400/20 backdrop-blur-sm disabled:opacity-50"
+                        title="Add a random card (Chaos Orb)"
+                    >
+                        <Dices className={`w-5 h-5 ${chaosLoading ? 'animate-spin' : ''}`} />
+                    </button>
+                    <button
+                        onClick={() => setIsGoldfishOpen(true)}
+                        className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-4 py-3 rounded-full font-bold transition-all shadow-2xl hover:shadow-slate-500/20 hover:-translate-y-1 border border-slate-600/20 backdrop-blur-sm"
+                        title="Test Hand (Goldfish)"
+                    >
+                        <Hand className="w-5 h-5" />
+                    </button>
                 </div>
             )}
 
@@ -554,6 +619,13 @@ export default function BuilderPage() {
                     setActiveTab('commander');
                     setSelectedColors([]);
                 }}
+            />
+
+
+            <GoldfishModal
+                isOpen={isGoldfishOpen}
+                onClose={() => setIsGoldfishOpen(false)}
+                deck={deck.cards}
             />
         </div>
     );
