@@ -1,66 +1,178 @@
-import { NextRequest, NextResponse } from 'next/server';
+import express from 'express';
+import cors from 'cors';
+import multer from 'multer';
+import fs from 'fs/promises';
+import path from 'path';
+import Papa from 'papaparse';
+import { fetchCardCollection } from './scryfall';
+import { CollectionCard, ScryfallCard } from './types';
 
-//
-// ---- Types ----
-//
+const app = express();
+const PORT = process.env.PORT || 3001;
 
-interface ScryfallCard {
-    id: string;
-    name: string;
-    type_line: string;
-    color_identity: string[];
-    oracle_text?: string;
-    card_faces?: { oracle_text?: string }[];
-    edhrec_rank?: number;
-    mana_cost?: string;
-}
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
 
-interface CollectionCard {
-    name: string;
-    scryfallId: string;
-    details?: {
-        type_line?: string;
-        color_identity?: string[];
-        mana_cost?: string;
-        oracle_text?: string;
-        card_faces?: { oracle_text?: string }[];
-    };
-}
+const upload = multer({ storage: multer.memoryStorage() });
 
-interface BuildRequestBody {
-    commanderName: string;
-    collection: CollectionCard[];
-}
+const DATA_DIR = path.join(process.cwd(), 'data');
+const COLLECTION_PATH = path.join(DATA_DIR, 'collection.json');
 
-//
-// ---- Route Handler ----
-//
+// In-memory cache for enriched cards (simple version)
+let cardCache: Record<string, ScryfallCard> = {};
 
-export async function POST(request: NextRequest) {
+// Ensure data dir exists
+const initDataDir = async () => {
     try {
-        //
-        // Parse request safely
-        //
-        const body = (await request.json()) as BuildRequestBody;
-        const { commanderName, collection = [] } = body;
+        await fs.mkdir(DATA_DIR, { recursive: true });
+    } catch (e) {
+        console.error("Failed to create data dir", e);
+    }
+};
+initDataDir();
+
+//
+// Routes
+//
+
+// GET /api/collection
+app.get('/api/collection', async (req, res) => {
+    try {
+        const data = await fs.readFile(COLLECTION_PATH, 'utf-8');
+        const collection = JSON.parse(data);
+        res.json({ collection });
+    } catch (error) {
+        console.error('Error reading collection:', error);
+        res.json({ collection: [] });
+    }
+});
+
+// POST /api/upload
+app.post('/api/upload', upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        const text = req.file.buffer.toString('utf-8');
+        let rows: any[] = [];
+
+        if (req.file.originalname.endsWith('.csv')) {
+            // Parse CSV
+            const parseResult = Papa.parse(text, {
+                header: true,
+                skipEmptyLines: true,
+            });
+
+            if (parseResult.errors.length > 0) {
+                return res.status(400).json({ error: 'CSV parsing error', details: parseResult.errors });
+            }
+            rows = parseResult.data as any[];
+        } else if (req.file.originalname.endsWith('.txt')) {
+            // Parse TXT
+            const lines = text.split('\n');
+            console.log(`[TXT Import] Found ${lines.length} lines`);
+            rows = lines.map(line => {
+                const match = line.trim().match(/^(\d+)\s+(.+)\s+\(([A-Z0-9]+)\)\s+([A-Z0-9-]+)(?:\s+\*([A-Z]+)\*)?$/);
+                if (match) {
+                    return {
+                        'Quantity': match[1],
+                        'Name': match[2],
+                        'Set Code': match[3].toLowerCase(),
+                        'Collector Number': match[4],
+                        'source': 'txt'
+                    };
+                }
+                return null;
+            }).filter(Boolean);
+            console.log(`[TXT Import] Parsed ${rows.length} rows`);
+        }
+
+        // Extract Scryfall IDs and basic info
+        const collection: CollectionCard[] = rows.map((row) => ({
+            quantity: parseInt(row['Quantity'] || '1', 10),
+            scryfallId: row['Scryfall ID'] || '',
+            name: row['Name'],
+            set: row['Set Code'],
+            collectorNumber: row['Collector Number']
+        })).filter(c => c.scryfallId || (c.set && c.collectorNumber));
+
+        console.log(`[TXT Import] Collection size: ${collection.length}`);
+
+        // Identify missing cards in cache
+        const missingIdentifiers: any[] = [];
+
+        collection.forEach(c => {
+            if (c.scryfallId) {
+                if (!cardCache[c.scryfallId]) {
+                    missingIdentifiers.push({ id: c.scryfallId });
+                }
+            } else if (c.set && c.collectorNumber) {
+                missingIdentifiers.push({ set: c.set, collector_number: c.collectorNumber });
+            }
+        });
+
+        console.log(`[TXT Import] Missing identifiers: ${missingIdentifiers.length}`);
+
+        // Fetch missing cards
+        if (missingIdentifiers.length > 0) {
+            const fetchedCards = await fetchCardCollection(missingIdentifiers);
+            console.log(`[TXT Import] Fetched ${fetchedCards.length} cards from Scryfall`);
+            fetchedCards.forEach(card => {
+                cardCache[card.id] = card;
+            });
+        }
+
+        // Enrich collection
+        const enrichedCollection = collection.map(c => {
+            let details: ScryfallCard | undefined;
+            if (c.scryfallId) {
+                details = cardCache[c.scryfallId];
+            } else if (c.set && c.collectorNumber) {
+                details = Object.values(cardCache).find(card =>
+                    card.set === c.set && card.collector_number === c.collectorNumber
+                );
+                if (details) {
+                    c.scryfallId = details.id;
+                }
+            }
+            return {
+                ...c,
+                details,
+            };
+        });
+
+        // Save to file
+        await fs.writeFile(COLLECTION_PATH, JSON.stringify(enrichedCollection, null, 2));
+
+        res.json({ success: true, count: enrichedCollection.length });
+
+    } catch (error) {
+        console.error('Upload error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// POST /api/auto-build
+app.post('/api/auto-build', async (req, res) => {
+    try {
+        const { commanderName, collection = [] } = req.body;
 
         if (!commanderName) {
-            return NextResponse.json({ error: "Commander name is required" }, { status: 400 });
+            return res.status(400).json({ error: "Commander name is required" });
         }
 
         console.log("Building deck for:", commanderName);
         console.log("Collection size:", collection.length);
 
-        //
         // Fetch commander data
-        //
         const commanderResponse = await fetch(
             `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(commanderName)}`
         );
 
         if (!commanderResponse.ok) {
             console.error("Commander not found:", commanderName);
-            return NextResponse.json({ error: "Commander not found" }, { status: 404 });
+            return res.status(404).json({ error: "Commander not found" });
         }
 
         const commander: ScryfallCard = await commanderResponse.json();
@@ -68,9 +180,6 @@ export async function POST(request: NextRequest) {
 
         console.log("Commander colors:", commanderColors);
 
-        //
-        // Deck container
-        //
         const TARGET_NON_LAND = 60;
         const TARGET_LANDS = 39;
         const cardNames: string[] = [];
@@ -89,10 +198,8 @@ export async function POST(request: NextRequest) {
 
             for (const [colorName, colorCode] of Object.entries(colorMap)) {
                 if (!commanderColors.includes(colorCode)) {
-                    // If the card mentions the missing color
                     const regex = new RegExp(`\\b${colorName}\\b`, 'i');
                     if (regex.test(text)) {
-                        // Allow exceptions
                         if (
                             /protection from/i.test(text) ||
                             /destroy/i.test(text) ||
@@ -111,11 +218,8 @@ export async function POST(request: NextRequest) {
             return true;
         };
 
-        //
-        // ---- STEP 1: Filter collection ----
-        //
-
-        const eligible = collection.filter((card) => {
+        // Filter collection
+        const eligible = collection.filter((card: CollectionCard) => {
             const type = card.details?.type_line ?? "";
             const ci = card.details?.color_identity ?? [];
 
@@ -126,28 +230,20 @@ export async function POST(request: NextRequest) {
             return isCardRelevant(card.details);
         });
 
-        // Singleton rule: dedupe by name
-        const uniqueEligible = Array.from(new Map(eligible.map((c) => [c.name, c])).values());
+        const uniqueEligible = Array.from(new Map(eligible.map((c: CollectionCard) => [c.name, c])).values()) as CollectionCard[];
 
         console.log("Eligible:", uniqueEligible.length);
 
-        //
-        // Categorize
-        //
-        //
-        // ---- STEP 1.5: Fetch Staples (NEW) ----
-        //
+        // Fetch Staples
         const TARGET_STAPLES = 15;
         const staples: ScryfallCard[] = [];
         const suggestedDetails: ScryfallCard[] = [];
 
         try {
             const colorQuery = commanderColors.length === 0 ? "id:c" : `id<=${commanderColors.join("")}`;
-            // Fetch slightly more to ensure we get non-lands
             const staplesResp = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`${colorQuery} legal:commander -t:land -t:basic`)}&order=edhrec&dir=asc&page=1`);
             if (staplesResp.ok) {
                 const data = await staplesResp.json();
-                // Filter out commander itself just in case
                 const list = data.data.filter((c: any) =>
                     c.name !== commanderName &&
                     isCardRelevant(c)
@@ -165,7 +261,6 @@ export async function POST(request: NextRequest) {
         const isRamp = (t: string, n: string) => /(Artifact|Enchantment|Sorcery)/.test(t) && /(sol ring|mana|ramp|cultivate|kodama|reach|signet|talisman|arcane|fellwar)/.test(n.toLowerCase());
         const isDraw = (n: string) => /(draw|rhystic|study|mystic|remora|phyrexian arena|necropotence|sylvan library)/.test(n.toLowerCase());
 
-        // Add staples and count
         let rampCount = 0;
         let drawCount = 0;
         let removalCount = 0;
@@ -182,76 +277,65 @@ export async function POST(request: NextRequest) {
             else if (isCreature(t, n)) creatureCount++;
         });
 
-        console.log(`Added ${staples.length} staples. Ramp: ${rampCount}, Draw: ${drawCount}, Removal: ${removalCount}, Creatures: ${creatureCount}`);
+        console.log(`Added ${staples.length} staples.`);
 
-        //
-        // Categorize Collection (excluding staples)
-        //
-        const creatures = uniqueEligible.filter((c) => {
+        // Categorize Collection
+        const creatures = uniqueEligible.filter((c: CollectionCard) => {
             if (cardNames.includes(c.name)) return false;
             const t = c.details?.type_line ?? "";
             const n = c.name;
             return isCreature(t, n);
         });
 
-        const removal = uniqueEligible.filter((c) => {
+        const removal = uniqueEligible.filter((c: CollectionCard) => {
             if (cardNames.includes(c.name)) return false;
             const t = c.details?.type_line ?? "";
             const n = c.name;
             return isRemoval(t, n);
         });
 
-        const ramp = uniqueEligible.filter((c) => {
+        const ramp = uniqueEligible.filter((c: CollectionCard) => {
             if (cardNames.includes(c.name)) return false;
             const t = c.details?.type_line ?? "";
             const n = c.name;
             return isRamp(t, n);
         });
 
-        const draw = uniqueEligible.filter((c) => {
+        const draw = uniqueEligible.filter((c: CollectionCard) => {
             if (cardNames.includes(c.name)) return false;
             const n = c.name;
             return isDraw(n);
         });
 
-        const nonBasicLands = uniqueEligible.filter((c) => {
+        const nonBasicLands = uniqueEligible.filter((c: CollectionCard) => {
             const t = c.details?.type_line ?? "";
             return t.includes("Land") && !t.includes("Basic");
         });
 
         const other = uniqueEligible.filter(
-            (c) => !cardNames.includes(c.name) &&
+            (c: CollectionCard) => !cardNames.includes(c.name) &&
                 !creatures.includes(c) && !removal.includes(c) &&
                 !ramp.includes(c) && !draw.includes(c) && !nonBasicLands.includes(c)
         );
 
-        //
-        // Card-adding helper
-        //
         const addCards = (list: CollectionCard[], max: number) => {
             const chosen = list.slice(0, max).map((c) => c.name);
             cardNames.push(...chosen);
             return chosen.length;
         };
 
-        //
-        // Build non-land section using ratios (adjusted for staples)
-        //
         let added = 0;
         added += addCards(ramp, Math.max(0, 10 - rampCount));
         added += addCards(draw, Math.max(0, 5 - drawCount));
         added += addCards(removal, Math.max(0, 10 - removalCount));
         added += addCards(creatures, Math.max(0, 30 - creatureCount));
 
-        // Fill remainder with other cards from collection
         const remainingSlots = Math.max(0, TARGET_NON_LAND - cardNames.length);
         added += addCards(other, remainingSlots);
 
         console.log("Added from collection:", added);
 
-        //
-        // ---- STEP 2: Suggest Scryfall fillers if needed ----
-        //
+        // Suggest Scryfall fillers
         if (cardNames.length < TARGET_NON_LAND) {
             const need = TARGET_NON_LAND - cardNames.length;
             console.log("Need additional:", need);
@@ -287,9 +371,7 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        //
-        // ---- STEP 3: Add lands ----
-        //
+        // Add lands
         const basicMap: Record<string, string> = {
             W: "Plains",
             U: "Island",
@@ -300,8 +382,7 @@ export async function POST(request: NextRequest) {
 
         let landCount = 0;
 
-        // add non-basic from collection
-        const eligibleNonBasicLands = uniqueEligible.filter((c) => {
+        const eligibleNonBasicLands = uniqueEligible.filter((c: CollectionCard) => {
             const type = c.details?.type_line ?? "";
             const ci = c.details?.color_identity ?? [];
             return (
@@ -312,10 +393,9 @@ export async function POST(request: NextRequest) {
         });
 
         const nonBasicToAdd = Math.min(eligibleNonBasicLands.length, Math.floor(TARGET_LANDS / 2));
-        eligibleNonBasicLands.slice(0, nonBasicToAdd).forEach((c) => cardNames.push(c.name));
+        eligibleNonBasicLands.slice(0, nonBasicToAdd).forEach((c: CollectionCard) => cardNames.push(c.name));
         landCount += nonBasicToAdd;
 
-        // fill with basics
         const remaining = TARGET_LANDS - landCount;
         const perColor = commanderColors.length ? Math.floor(remaining / commanderColors.length) : 0;
         const extra = commanderColors.length ? remaining % commanderColors.length : 0;
@@ -330,10 +410,7 @@ export async function POST(request: NextRequest) {
 
         console.log("Total cards:", cardNames.length);
 
-        //
-        // Return deck
-        //
-        return NextResponse.json({
+        res.json({
             success: true,
             deckName: `Auto-built ${commanderName} deck`,
             cardNames,
@@ -345,12 +422,13 @@ export async function POST(request: NextRequest) {
 
     } catch (err) {
         console.error("Auto-build error:", err);
-        return NextResponse.json(
-            {
-                error: "Failed to build deck",
-                details: err instanceof Error ? err.message : String(err),
-            },
-            { status: 500 }
-        );
+        res.status(500).json({
+            error: "Failed to build deck",
+            details: err instanceof Error ? err.message : String(err),
+        });
     }
-}
+});
+
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});

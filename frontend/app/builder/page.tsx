@@ -8,7 +8,9 @@ import { ColorPicker } from '@/components/ColorPicker';
 import { CardGrid } from '@/components/CardGrid';
 import { DeckSidebar } from '@/components/DeckSidebar';
 import { GoldfishModal } from '@/components/GoldfishModal';
-import { ArrowLeft, Filter, Search, Sparkles, Dices, Hand } from 'lucide-react';
+import { ArrowLeft, Filter, Search, Sparkles, Dices, Hand, Package } from 'lucide-react';
+
+import { API_BASE_URL } from '@/lib/api';
 
 export default function BuilderPage() {
     const router = useRouter();
@@ -26,7 +28,7 @@ export default function BuilderPage() {
     useEffect(() => {
         const fetchCollection = async () => {
             try {
-                const res = await fetch('/api/collection');
+                const res = await fetch(`${API_BASE_URL}/collection`);
                 if (!res.ok) throw new Error('Failed to fetch collection');
                 const data = await res.json();
                 if (data.collection && data.collection.length > 0) {
@@ -141,7 +143,7 @@ export default function BuilderPage() {
 
         setIsAutoBuilding(true);
         try {
-            const response = await fetch('/api/auto-build', {
+            const response = await fetch(`${API_BASE_URL}/auto-build`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -500,6 +502,14 @@ export default function BuilderPage() {
                         <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-violet-400 to-indigo-400">
                             Deck Builder
                         </h1>
+                        <button
+                            onClick={() => router.push('/collection')}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm transition-colors"
+                            title="View full collection"
+                        >
+                            <Package className="w-4 h-4" />
+                            <span className="hidden sm:inline">Collection</span>
+                        </button>
                     </div>
 
                     <div className="flex items-center gap-6">

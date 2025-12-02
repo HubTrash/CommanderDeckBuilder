@@ -7,7 +7,7 @@ interface CardGridProps {
     cards: CollectionCard[];
     onAdd?: (card: CollectionCard) => void;
     onRemove?: (card: CollectionCard) => void;
-    actionLabel?: 'add' | 'remove';
+    actionLabel?: 'add' | 'remove' | 'view';
 }
 
 export function CardGrid({ cards, onAdd, onRemove, actionLabel = 'add' }: CardGridProps) {
