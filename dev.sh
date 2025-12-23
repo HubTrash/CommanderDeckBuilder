@@ -81,9 +81,49 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "$BACKEND_PID" > .dev-pids
 echo "$FRONTEND_PID" >> .dev-pids
 
+# Recursive kill function to ensure all child processes (like ts-node) are killed
+kill_tree() {
+    local pid=$1
+    if [ -z "$pid" ]; then return; fi
+    
+    # Find children (works with pgrep or ps)
+    local children=$(pgrep -P "$pid" 2>/dev/null)
+    if [ -z "$children" ]; then
+        children=$(ps -o pid= --ppid "$pid" 2>/dev/null)
+    fi
+
+    for child in $children; do
+        kill_tree "$child"
+    done
+    
+    kill "$pid" 2>/dev/null
+}
+
+cleanup() {
+    # Avoid running multiple times
+    trap - INT TERM EXIT
+    
+    echo ""
+    echo "🛑 Stopping services..."
+    
+    if [ -n "$BACKEND_PID" ]; then
+        echo "   Killing Backend tree ($BACKEND_PID)..."
+        kill_tree "$BACKEND_PID"
+    fi
+    
+    if [ -n "$FRONTEND_PID" ]; then
+        echo "   Killing Frontend tree ($FRONTEND_PID)..."
+        kill_tree "$FRONTEND_PID"
+    fi
+    
+    rm -f .dev-pids
+    echo "👋 Servers stopped"
+    exit 0
+}
+
 # Wait for user interrupt
 echo ""
 echo "Press Ctrl+C to stop all servers..."
-trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; rm -f .dev-pids; echo ''; echo '👋 Servers stopped'; exit 0" INT
+trap cleanup INT TERM EXIT
 
 wait
