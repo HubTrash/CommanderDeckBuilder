@@ -1,73 +1,115 @@
 # Commander Deck Builder
 
-A powerful Next.js application designed to help Magic: The Gathering players build Commander decks using their own card collection. Upload your collection from Manabox or any other source that exports a CSV or txt file, select a commander, and let the app help you brew the perfect deck.
+A full-stack web application for building Magic: The Gathering Commander decks using your personal card collection.
 
 ## Features
 
-- **Collection Management**: Easily upload your card collection using a Manabox CSV export or any other source that exports a CSV or txt file.
-- **Commander Selection**: Browse your legendary creatures and planeswalkers to find your next commander. Filter by color identity to narrow down your choices.
-- **Smart Deck Building**:
-  - **Color Identity Enforcement**: Automatically filters your library to only show cards compatible with your commander's color identity.
-  - **Singleton Rule**: Prevents adding duplicate cards (except basic lands) to ensure your deck is Commander legal.
-- **Auto-Build**: Generate a deck list based on your commander using intelligent suggestions (powered by Scryfall data).
-- **Deck Balancing**: Automatically fill your deck to 100 cards with a balanced mix of lands and spells from your available collection.
-- **Search & Filter**: Quickly find specific cards in your collection with real-time search and filtering.
+- 📤 **Upload Collection**: Import your Manabox CSV or TXT collection files
+- 📚 **View Collection**: Browse your entire card collection with advanced filters
+- 🎯 **Smart Commander Selection**: Filter by color identity
+- 🃏 **Deck Building**: Add cards with automatic color identity validation
+- 🤖 **Auto-Build**: AI-powered deck suggestions using EDHREC data
+- ⚖️ **Balance Deck**: Automatically fill remaining slots with optimal lands and spells
+- 🎲 **Chaos Orb**: Add random legal cards for variety
+- 🧪 **Goldfish Testing**: Test opening hands
+- 📊 **Salt Meter**: Track your deck's power level
+- 💾 **Export**: Download your deck as a TXT file
+
+## Project Structure
+
+This project is split into two parts:
+
+```
+CommanderDeckBuilder/
+├── frontend/          # Next.js React application
+└── backend/           # Express.js API server
+```
+
+## Quick Start
+
+### Backend Setup
+
+```bash
+cd backend
+npm install
+npm run build
+npm start
+```
+
+The backend will run on `http://localhost:3001`
+
+### Frontend Setup
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend will run on `http://localhost:3000`
+
+## Deployment
+
+### Option 1: Monorepo (Current Structure)
+
+Keep both frontend and backend in the same repository. Deploy them separately:
+- Backend: Deploy to a Node.js hosting service (Railway, Render, Fly.io, etc.)
+- Frontend: Deploy to Vercel, Netlify, or similar
+
+### Option 2: Separate Repositories
+
+Split into two repos:
+1. Move `backend/` to a new repository
+2. Move `frontend/` to another repository
+3. Update the `NEXT_PUBLIC_API_URL` in the frontend to point to your deployed backend
+
+## Environment Variables
+
+### Backend
+- `PORT`: Server port (default: 3001)
+
+### Frontend
+- `NEXT_PUBLIC_API_URL`: Backend API URL (default: http://localhost:3001/api)
+- `GOOGLE_CLIENT_ID`: Google OAuth client ID (optional)
+- `GOOGLE_CLIENT_SECRET`: Google OAuth secret (optional)
+- `NEXTAUTH_SECRET`: NextAuth secret (optional)
+- `NEXTAUTH_URL`: Frontend URL (optional)
 
 ## Tech Stack
 
-- **Framework**: [Next.js](https://nextjs.org/) (App Router)
-- **Language**: [TypeScript](https://www.typescriptlang.org/)
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
-- **Icons**: [Lucide React](https://lucide.dev/)
-- **CSV Parsing**: [PapaParse](https://www.papaparse.com/)
-- **Data Source**: [Scryfall API](https://scryfall.com/docs/api)
+**Frontend:**
+- Next.js 14
+- React 18
+- TypeScript
+- Tailwind CSS
+- NextAuth.js
 
-## Getting Started
+**Backend:**
+- Express.js
+- TypeScript
+- Multer
+- PapaParse
+- Scryfall API
 
-### Prerequisites
+## How It Works
 
-- Node.js (v18 or higher)
-- npm, yarn, pnpm, or bun
+1. **Upload**: User uploads their Manabox collection file
+2. **Enrich**: Backend fetches card details from Scryfall API
+3. **Select Commander**: User chooses a commander from their collection
+4. **Build Deck**: User manually adds cards or uses auto-build features
+5. **Balance**: App suggests lands and fills remaining slots
+6. **Export**: Download the final decklist
 
-### Installation
+## API Integration
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/commander-deck-builder.git
-   cd commander-deck-builder
-   ```
+The app integrates with:
+- **Scryfall API**: Card data and images
+- **EDHREC**: Deck building recommendations (via Scryfall queries)
 
-2. Install dependencies:
-   ```bash
-   npm install
-   # or
-   yarn install
-   # or
-   pnpm install
-   ```
+## License
 
-3. Run the development server:
-   ```bash
-   npm run dev
-   # or
-   yarn dev
-   # or
-   pnpm dev
-   ```
-
-4. Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-## Usage
-
-1. **Export Collection**: Export your card collection from Manabox as a CSV file.
-2. **Upload**: On the home page, upload your CSV file.
-3. **Choose Commander**: Select a legendary creature or planeswalker to lead your deck. Use the color filters to find specific color combinations.
-4. **Build**:
-   - Manually add cards from your library.
-   - Use **Auto-Build** to get suggestions based on your commander.
-   - Use **Balance Deck** to automatically fill remaining slots with appropriate lands and spells from your collection.
-5. **Review**: Check your deck list in the sidebar and make final adjustments.
+MIT License - See LICENSE file for details
 
 ## Credits
 
-Imagined and created by **Trashpanda** using **Gemini 3** and **Antigravity**.
+Created by Trashpanda using Gemini 3 and Antigravity
