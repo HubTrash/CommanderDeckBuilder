@@ -18,7 +18,7 @@ export default function BuilderPage() {
     const { data: session } = useSession();
     const [collection, setCollection] = useState<CollectionCard[]>([]);
     const [selectedColors, setSelectedColors] = useState<string[]>([]);
-    const [deck, setDeck] = useState<Deck>({ cards: [], colors: [], missingCards: [] });
+    const [deck, setDeck] = useState<Deck>({ commanders: [], cards: [], colors: [], missingCards: [] });
     const [searchQuery, setSearchQuery] = useState('');
     const [activeTab, setActiveTab] = useState<'commander' | 'library'>('commander');
     const [isAutoBuilding, setIsAutoBuilding] = useState(false);
@@ -47,13 +47,18 @@ export default function BuilderPage() {
         fetchCollection();
     }, [router]);
 
-    // Update deck colors when commander changes
+    // Update deck colors when commanders change
     useEffect(() => {
-        if (deck.commander) {
-            setDeck(prev => ({ ...prev, colors: deck.commander?.color_identity || [] }));
-            setSelectedColors(deck.commander.color_identity || []);
+        const commanders = deck.commanders || [];
+        if (commanders.length > 0) {
+            const allColors = new Set<string>();
+            commanders.forEach(c => {
+                (c.color_identity || []).forEach(color => allColors.add(color));
+            });
+            const mergedColors = Array.from(allColors);
+            setDeck(prev => ({ ...prev, colors: mergedColors }));
         }
-    }, [deck.commander]);
+    }, [deck.commanders]);
 
     // Filter Logic
     const filteredCards = useMemo(() => {
@@ -67,40 +72,81 @@ export default function BuilderPage() {
 
         // 2. Filter by Mode (Commander vs Library)
         if (activeTab === 'commander') {
+            const commanders = deck.commanders || [];
+
             const potentialCommanders = filtered.filter(c => {
+                // Exclude already selected commanders
+                if (commanders.some(cmdr => cmdr.name === c.name)) return false;
+
                 const type = c.details?.type_line || '';
                 const isLegendaryCreature = type.includes('Legendary Creature');
-                // Simple Planeswalker commander check (can be improved)
+                const isBackground = type.includes('Background');
                 const isPlaneswalkerCommander = type.includes('Planeswalker') && (c.details?.oracle_text?.includes('can be your commander') || false);
 
-                if (!isLegendaryCreature && !isPlaneswalkerCommander) return false;
+                if (!isLegendaryCreature && !isPlaneswalkerCommander && !isBackground) return false;
 
-                // Color Identity Check: Must be EXACTLY within selected colors if colors are selected
-                // Or just show all if no colors selected yet (to let user pick commander first)
+                // If we have one commander, filter for valid partners
+                if (commanders.length === 1) {
+                    const first = commanders[0];
+                    const firstOracle = (first.oracle_text || "").toLowerCase();
+                    const firstKeywords = first.keywords || [];
+
+                    const isFirstPartner = firstKeywords.includes("Partner");
+                    const isFirstPartnerWith = firstOracle.includes("partner with");
+                    const isFirstBackgroundPicker = firstOracle.includes("choose a background");
+                    const isFirstFriendsForever = firstKeywords.includes("Friends forever");
+
+                    if (isFirstPartnerWith) {
+                        // Extract specific partner name from text like "Partner with Alisaie Leveilleur"
+                        const targetMatch = firstOracle.match(/partner with ([^\n]+)/);
+                        if (targetMatch) {
+                            let targetName = targetMatch[1].trim();
+                            // Remove parenthetical text like "(When this...)"
+                            targetName = targetName.split('(')[0].trim().toLowerCase();
+                            // Only show cards that match this specific partner name
+                            if (targetName && !c.name.toLowerCase().includes(targetName)) {
+                                return false;
+                            }
+                        }
+                    } else if (isFirstPartner) {
+                        // Generic partner - show all cards with Partner
+                        if (!c.details?.keywords?.includes("Partner")) return false;
+                    } else if (isFirstBackgroundPicker) {
+                        // Show only Backgrounds
+                        if (!isBackground) return false;
+                    } else if (isFirstFriendsForever) {
+                        // Show only Friends Forever
+                        if (!c.details?.keywords?.includes("Friends forever")) return false;
+                    } else {
+                        // First commander can't have partners
+                        return false;
+                    }
+                }
+
+                // Color Identity Check
                 if (selectedColors.length > 0) {
                     const identity = c.details?.color_identity || [];
-                    // Check if identity is a subset of selectedColors
                     return identity.every(color => selectedColors.includes(color));
                 }
                 return true;
             });
 
-            // Deduplicate by name
             const uniqueCommanders = new Map();
             potentialCommanders.forEach(c => {
                 if (!uniqueCommanders.has(c.name)) {
                     uniqueCommanders.set(c.name, c);
                 }
             });
-
             return Array.from(uniqueCommanders.values());
         } else {
             // Library Mode
-            if (!deck.commander) return []; // Need commander first
+            if (!deck.commanders || deck.commanders.length === 0) return []; // Need commander first
 
-            return filtered.filter(c => {
-                // Exclude if it is the commander (by name)
-                if (c.name === deck.commander?.name) return false;
+            const commanderIdentity = deck.colors || [];
+
+            let result = filtered.filter(c => {
+                // Exclude if it is one of the commanders
+                if (deck.commanders?.some(cmdr => cmdr.name === c.name)) return false;
 
                 // Exclude cards already in deck (Singleton Rule by Name)
                 // Exception: Basic Lands
@@ -113,20 +159,65 @@ export default function BuilderPage() {
 
                 // Color Identity Check: Must be subset of Commander's identity
                 const identity = c.details?.color_identity || [];
-                const commanderIdentity = deck.commander?.color_identity || [];
 
                 // Card identity must be subset of Commander identity
                 // Exception: Colorless cards (identity []) are always allowed
                 return identity.every(color => commanderIdentity.includes(color));
             });
+            return result;
         }
-    }, [collection, searchQuery, activeTab, selectedColors, deck.commander, deck.cards]);
+    }, [collection, searchQuery, activeTab, selectedColors, deck.commanders, deck.cards, deck.colors]);
 
     // Actions
-    const setCommander = (card: CollectionCard) => {
+    // Actions
+    const addCommander = (card: CollectionCard) => {
         if (!card.details) return;
-        setDeck(prev => ({ ...prev, commander: card.details as ScryfallCard }));
-        setActiveTab('library');
+        const newCommander = card.details as ScryfallCard;
+        const currentCommanders = deck.commanders || [];
+
+        // Check if commander can have partners
+        const canAddMore = (cmdr: ScryfallCard) => {
+            const oracle = cmdr.oracle_text || "";
+            const keywords = cmdr.keywords || [];
+            return keywords.includes("Partner") ||
+                oracle.includes("Partner with") ||
+                oracle.includes("Choose a Background") ||
+                keywords.includes("Friends forever");
+        };
+
+        if (currentCommanders.length === 0) {
+            setDeck(prev => ({ ...prev, commanders: [newCommander] }));
+            if (!canAddMore(newCommander)) {
+                setActiveTab('library');
+            }
+        } else if (currentCommanders.length === 1) {
+            const first = currentCommanders[0];
+            const firstOracle = first.oracle_text || "";
+            const firstKeywords = first.keywords || [];
+
+            const isSecondPartner = newCommander.keywords?.includes("Partner") || (newCommander.oracle_text?.includes("Partner with") && newCommander.oracle_text?.includes(first.name));
+            const isSecondBackground = newCommander.type_line.includes("Background");
+            const isFirstBackgroundPicker = firstOracle.includes("Choose a Background");
+            const isFirstPartner = firstKeywords.includes("Partner") || firstOracle.includes("Partner with");
+            const isFriendsForever = firstKeywords.includes("Friends forever") && newCommander.keywords?.includes("Friends forever");
+
+            if ((isFirstPartner && isSecondPartner) || (isFirstBackgroundPicker && isSecondBackground) || isFriendsForever) {
+                setDeck(prev => ({ ...prev, commanders: [...(prev.commanders || []), newCommander] }));
+                setActiveTab('library');
+            } else {
+                // Replace first if not compatible
+                setDeck(prev => ({ ...prev, commanders: [newCommander] }));
+                if (!canAddMore(newCommander)) {
+                    setActiveTab('library');
+                }
+            }
+        } else {
+            // Replace all
+            setDeck(prev => ({ ...prev, commanders: [newCommander] }));
+            if (!canAddMore(newCommander)) {
+                setActiveTab('library');
+            }
+        }
     };
 
     const addToDeck = (card: CollectionCard) => {
@@ -143,14 +234,20 @@ export default function BuilderPage() {
         });
     };
 
-    const removeCommander = () => {
-        setDeck(prev => ({ ...prev, commander: undefined }));
-        setActiveTab('commander');
-        setSelectedColors([]);
+    const removeCommander = (cmdr: ScryfallCard) => {
+        setDeck(prev => {
+            const remainingCommanders = (prev.commanders || []).filter(c => c.id !== cmdr.id);
+            return { ...prev, commanders: remainingCommanders };
+        });
+        if ((deck.commanders?.length || 0) <= 1) {
+            setActiveTab('commander');
+            setSelectedColors([]);
+        }
     };
 
     const handleAutoBuild = async () => {
-        if (!deck.commander) return;
+        if (!deck.commanders || deck.commanders.length === 0) return;
+        const commanderName = deck.commanders[0].name;
 
         setIsAutoBuilding(true);
         try {
@@ -158,7 +255,7 @@ export default function BuilderPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    commanderName: deck.commander.name,
+                    commanderName: commanderName,
                     collection: collection
                 }),
             });
@@ -262,7 +359,7 @@ export default function BuilderPage() {
     };
 
     const handleBalanceDeck = () => {
-        if (!deck.commander) return;
+        if (!deck.commanders || deck.commanders.length === 0) return;
 
         const TARGET_LANDS = 35;
         const TARGET_TOTAL = 99; // 99 + 1 commander = 100
@@ -275,7 +372,7 @@ export default function BuilderPage() {
         const totalSlotsAvailable = TARGET_TOTAL - deck.cards.length;
 
         // Get available cards from collection
-        const commanderIdentity = deck.commander.color_identity || [];
+        const commanderIdentity = deck.colors || [];
 
         console.log('Balance Deck Debug:', {
             currentLandsCount: currentLands.length,
@@ -327,7 +424,7 @@ export default function BuilderPage() {
             // Allow basic lands even if already in deck (infinite supply)
             const isBasicLand = c.details?.type_line?.includes('Basic Land');
             if (!isBasicLand && deck.cards.some(dc => dc.name === c.name)) return false;
-            if (c.name === deck.commander?.name) return false;
+            if (deck.commanders?.some(cmdr => cmdr.name === c.name)) return false;
             const identity = c.details?.color_identity || [];
             if (!identity.every(color => commanderIdentity.includes(color))) return false;
             if (!isCardRelevant(c)) return false;
@@ -454,10 +551,10 @@ export default function BuilderPage() {
     };
 
     const handleChaosOrb = async () => {
-        if (!deck.commander) return;
+        if (!deck.commanders || deck.commanders.length === 0) return;
         setChaosLoading(true);
         try {
-            const colors = deck.commander.color_identity.join('');
+            const colors = deck.colors.join('');
             // If colorless, use id:c. Otherwise id:wubrg
             const query = `commander:${colors || 'c'} (game:paper) -type:conspiracy -type:scheme -type:vanguard`;
             const res = await fetch(`https://api.scryfall.com/cards/random?q=${encodeURIComponent(query)}`);
@@ -481,8 +578,8 @@ export default function BuilderPage() {
     };
 
     const getThemeClass = () => {
-        if (!deck.commander) return "bg-slate-950";
-        const colors = deck.commander.color_identity || [];
+        if (!deck.commanders || deck.commanders.length === 0) return "bg-slate-950";
+        const colors = deck.colors || [];
         if (colors.length === 0) return "bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-slate-900 via-zinc-900 to-slate-950";
 
         // Dynamic gradients based on primary color
@@ -505,11 +602,13 @@ export default function BuilderPage() {
             {/* Fixed Top Bar */}
             <TopBar
                 title="Deck Builder"
-                subtitle={deck.commander ? `Building ${deck.commander.name}` : 'Choose your commander'}
+                subtitle={deck.commanders && deck.commanders.length > 0 ? `Building ${deck.commanders.map(c => c.name).join(' & ')}` : 'Choose your commander'}
             />
 
             {/* Main Content */}
             <div className="flex-1 mr-80 flex flex-col h-screen overflow-hidden pt-20">
+                {/* Filters Bar */}
+                {/* Filters Bar */}
                 {/* Filters Bar */}
                 <div className="bg-slate-900/50 backdrop-blur border-b border-slate-800 p-4 z-10">
                     <div className="max-w-full mx-auto px-6">
@@ -585,7 +684,7 @@ export default function BuilderPage() {
                     </button>
                     <button
                         onClick={() => setActiveTab('library')}
-                        disabled={!deck.commander}
+                        disabled={!deck.commanders || deck.commanders.length === 0}
                         className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'library' ? 'border-violet-500 text-violet-400' : 'border-transparent text-slate-500 hover:text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed'}`}
                     >
                         2. Build Library
@@ -599,13 +698,13 @@ export default function BuilderPage() {
                             <h2 className="text-2xl font-bold text-white">
                                 {activeTab === 'commander' ? 'Select Your Commander' : `Available Cards (${filteredCards.length})`}
                             </h2>
-                            {activeTab === 'library' && deck.commander && (
+                            {activeTab === 'library' && deck.commanders && deck.commanders.length > 0 && (
                                 <div className="flex items-center gap-4">
                                     <div className="text-sm text-slate-400 flex items-center gap-2">
                                         <Filter className="w-4 h-4" />
                                         Filtered by identity:
                                         <div className="flex gap-1">
-                                            {deck.commander.color_identity.length === 0 ? 'Colorless' : deck.commander.color_identity.map(c => (
+                                            {deck.colors.length === 0 ? 'Colorless' : deck.colors.map(c => (
                                                 <span key={c} className="font-bold">{c}</span>
                                             ))}
                                         </div>
@@ -616,47 +715,49 @@ export default function BuilderPage() {
 
                         <CardGrid
                             cards={filteredCards}
-                            onAdd={activeTab === 'commander' ? setCommander : addToDeck}
+                            onAdd={activeTab === 'commander' ? addCommander : addToDeck}
                             actionLabel="add"
                         />
                     </div>
                 </main>
-            </div>
+            </div >
 
             {/* Floating Action Buttons */}
-            {activeTab === 'library' && deck.commander && (
-                <div className="fixed bottom-8 right-96 flex gap-4 z-50">
-                    <button
-                        onClick={handleAutoBuild}
-                        disabled={isAutoBuilding}
-                        className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white px-6 py-3 rounded-full font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-2xl hover:shadow-violet-500/20 hover:-translate-y-1 border border-violet-400/20 backdrop-blur-sm"
-                    >
-                        <Sparkles className="w-5 h-5" />
-                        {isAutoBuilding ? 'Building...' : 'Auto-Build'}
-                    </button>
-                    <button
-                        onClick={handleBalanceDeck}
-                        className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-6 py-3 rounded-full font-bold transition-all shadow-2xl hover:shadow-emerald-500/20 hover:-translate-y-1 border border-emerald-400/20 backdrop-blur-sm"
-                    >
-                        Balance Deck
-                    </button>
-                    <button
-                        onClick={handleChaosOrb}
-                        disabled={chaosLoading}
-                        className="flex items-center gap-2 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white px-4 py-3 rounded-full font-bold transition-all shadow-2xl hover:shadow-orange-500/20 hover:-translate-y-1 border border-orange-400/20 backdrop-blur-sm disabled:opacity-50"
-                        title="Add a random card (Chaos Orb)"
-                    >
-                        <Dices className={`w-5 h-5 ${chaosLoading ? 'animate-spin' : ''}`} />
-                    </button>
-                    <button
-                        onClick={() => setIsGoldfishOpen(true)}
-                        className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-4 py-3 rounded-full font-bold transition-all shadow-2xl hover:shadow-slate-500/20 hover:-translate-y-1 border border-slate-600/20 backdrop-blur-sm"
-                        title="Test Hand (Goldfish)"
-                    >
-                        <Hand className="w-5 h-5" />
-                    </button>
-                </div>
-            )}
+            {
+                activeTab === 'library' && deck.commanders && deck.commanders.length > 0 && (
+                    <div className="fixed bottom-8 right-96 flex gap-4 z-50">
+                        <button
+                            onClick={handleAutoBuild}
+                            disabled={isAutoBuilding}
+                            className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white px-6 py-3 rounded-full font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-2xl hover:shadow-violet-500/20 hover:-translate-y-1 border border-violet-400/20 backdrop-blur-sm"
+                        >
+                            <Sparkles className="w-5 h-5" />
+                            {isAutoBuilding ? 'Building...' : 'Auto-Build'}
+                        </button>
+                        <button
+                            onClick={handleBalanceDeck}
+                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-6 py-3 rounded-full font-bold transition-all shadow-2xl hover:shadow-emerald-500/20 hover:-translate-y-1 border border-emerald-400/20 backdrop-blur-sm"
+                        >
+                            Balance Deck
+                        </button>
+                        <button
+                            onClick={handleChaosOrb}
+                            disabled={chaosLoading}
+                            className="flex items-center gap-2 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white px-4 py-3 rounded-full font-bold transition-all shadow-2xl hover:shadow-orange-500/20 hover:-translate-y-1 border border-orange-400/20 backdrop-blur-sm disabled:opacity-50"
+                            title="Add a random card (Chaos Orb)"
+                        >
+                            <Dices className={`w-5 h-5 ${chaosLoading ? 'animate-spin' : ''}`} />
+                        </button>
+                        <button
+                            onClick={() => setIsGoldfishOpen(true)}
+                            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-4 py-3 rounded-full font-bold transition-all shadow-2xl hover:shadow-slate-500/20 hover:-translate-y-1 border border-slate-600/20 backdrop-blur-sm"
+                            title="Test Hand (Goldfish)"
+                        >
+                            <Hand className="w-5 h-5" />
+                        </button>
+                    </div>
+                )
+            }
 
             {/* Sidebar */}
             <DeckSidebar
@@ -670,7 +771,7 @@ export default function BuilderPage() {
                     }));
                 }}
                 onClearDeck={() => {
-                    setDeck({ cards: [], colors: [], missingCards: [] });
+                    setDeck({ commanders: [], cards: [], colors: [], missingCards: [] });
                     setActiveTab('commander');
                     setSelectedColors([]);
                 }}
@@ -682,6 +783,6 @@ export default function BuilderPage() {
                 onClose={() => setIsGoldfishOpen(false)}
                 deck={deck.cards}
             />
-        </div>
+        </div >
     );
 }

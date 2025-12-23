@@ -15,6 +15,13 @@ export interface ScryfallCard {
         art_crop: string;
         border_crop: string;
     };
+    prices?: {
+        usd: string | null;
+        usd_foil: string | null;
+        eur: string | null;
+        eur_foil: string | null;
+        tix: string | null;
+    };
     card_faces?: {
         name: string;
         mana_cost: string;
@@ -49,6 +56,7 @@ export interface CollectionCard {
 
 export interface Deck {
     commander?: ScryfallCard;
+    commanders?: ScryfallCard[];
     cards: CollectionCard[];
     colors: string[];
     missingCards?: ScryfallCard[]; // Cards not in collection

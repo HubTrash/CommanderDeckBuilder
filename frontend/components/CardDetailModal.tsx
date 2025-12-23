@@ -136,6 +136,42 @@ export function CardDetailModal({ card, isOpen, onClose }: CardDetailModalProps)
                                 </div>
                             </div>
 
+
+                            {/* Prices */}
+                            {details.prices && (
+                                <div>
+                                    <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Prices</h3>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {details.prices.usd && (
+                                            <div className="bg-slate-800/50 p-2 rounded-lg border border-slate-700">
+                                                <div className="text-xs text-slate-400">TCGPlayer (USD)</div>
+                                                <div className="text-emerald-400 font-bold">${details.prices.usd}</div>
+                                            </div>
+                                        )}
+                                        {details.prices.eur && (
+                                            <div className="bg-slate-800/50 p-2 rounded-lg border border-slate-700">
+                                                <div className="text-xs text-slate-400">Cardmarket (EUR)</div>
+                                                <div className="text-blue-400 font-bold">€{details.prices.eur}</div>
+                                            </div>
+                                        )}
+                                        {details.prices.tix && (
+                                            <div className="bg-slate-800/50 p-2 rounded-lg border border-slate-700">
+                                                <div className="text-xs text-slate-400">MTGO (TIX)</div>
+                                                <div className="text-amber-400 font-bold">{details.prices.tix}</div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Quantity in Collection */}
+                            {card.quantity > 0 && (
+                                <div>
+                                    <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Quantity in Collection</h3>
+                                    <p className="text-lg text-slate-200">{card.quantity}</p>
+                                </div>
+                            )}
+
                             {/* Keywords */}
                             {details.keywords && details.keywords.length > 0 && (
                                 <div>
@@ -170,18 +206,11 @@ export function CardDetailModal({ card, isOpen, onClose }: CardDetailModalProps)
                                 </p>
                             </div>
 
-                            {/* Quantity Badge */}
-                            {card.quantity > 1 && (
-                                <div className="bg-slate-800 border border-slate-700 rounded-lg p-3">
-                                    <p className="text-sm text-slate-400">
-                                        You own <span className="text-violet-400 font-bold text-lg">{card.quantity}</span> {card.quantity === 1 ? 'copy' : 'copies'} of this card
-                                    </p>
-                                </div>
-                            )}
+
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }

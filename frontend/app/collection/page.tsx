@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { CollectionCard } from '@/lib/types';
 import { CardGrid } from '@/components/CardGrid';
 import { ColorPicker } from '@/components/ColorPicker';
-import { Search, Filter, Package } from 'lucide-react';
+import { Search, Filter, Package, ArrowDownUp, DollarSign, X } from 'lucide-react';
 import { API_BASE_URL } from '@/lib/api';
 import { TopBar } from '@/components/TopBar';
 import { AdvancedFilters } from '@/components/AdvancedFilters';
@@ -22,6 +22,27 @@ export default function CollectionPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [selectedCard, setSelectedCard] = useState<CollectionCard | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [sortBy, setSortBy] = useState<'name' | 'cmc-asc' | 'cmc-desc' | 'price-desc' | 'price-asc'>('name');
+    const [currency, setCurrency] = useState<'usd' | 'eur' | 'tix' | 'cad'>('usd');
+    const [isInitialized, setIsInitialized] = useState(false);
+
+    // Initialize from localStorage
+    useEffect(() => {
+        const savedSort = localStorage.getItem('collection_sortBy');
+        const savedCurrency = localStorage.getItem('collection_currency');
+
+        if (savedSort) setSortBy(savedSort as any);
+        if (savedCurrency) setCurrency(savedCurrency as any);
+        setIsInitialized(true);
+    }, []);
+
+    // Save to localStorage
+    useEffect(() => {
+        if (isInitialized) {
+            localStorage.setItem('collection_sortBy', sortBy);
+            localStorage.setItem('collection_currency', currency);
+        }
+    }, [sortBy, currency, isInitialized]);
 
     // Load collection on mount
     useEffect(() => {
@@ -66,7 +87,7 @@ export default function CollectionPage() {
 
     // Filter cards
     const filteredCards = useMemo(() => {
-        let filtered = collection;
+        let filtered = [...collection];
 
         // Search filter
         if (searchQuery) {
@@ -157,8 +178,36 @@ export default function CollectionPage() {
             });
         }
 
+        // Sorting
+        filtered.sort((a, b) => {
+            if (sortBy === 'name') {
+                return a.name.localeCompare(b.name);
+            } else if (sortBy === 'cmc-asc') {
+                return (a.details?.cmc || 0) - (b.details?.cmc || 0);
+            } else if (sortBy === 'cmc-desc') {
+                return (b.details?.cmc || 0) - (a.details?.cmc || 0);
+            } else if (sortBy === 'price-desc') {
+                const getPrice = (c: CollectionCard) => {
+                    const prices = c.details?.prices;
+                    if (!prices) return 0;
+                    if (currency === 'cad') return parseFloat(prices.usd || '0') * 1.4;
+                    return parseFloat(prices[currency as keyof typeof prices] || '0');
+                };
+                return getPrice(b) - getPrice(a);
+            } else if (sortBy === 'price-asc') {
+                const getPrice = (c: CollectionCard) => {
+                    const prices = c.details?.prices;
+                    if (!prices) return 0;
+                    if (currency === 'cad') return parseFloat(prices.usd || '0') * 1.4;
+                    return parseFloat(prices[currency as keyof typeof prices] || '0');
+                };
+                return getPrice(a) - getPrice(b);
+            }
+            return 0;
+        });
+
         return filtered;
-    }, [collection, searchQuery, selectedColors, selectedTypes, selectedEffects, selectedSynergies]);
+    }, [collection, searchQuery, selectedColors, selectedTypes, selectedEffects, selectedSynergies, sortBy, currency]);
 
     // Group cards by name and count quantities
     const uniqueCards = useMemo(() => {
@@ -212,9 +261,18 @@ export default function CollectionPage() {
                                     placeholder="Search cards..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-violet-500 w-full transition-colors"
+                                    className="bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-10 py-2 text-sm focus:outline-none focus:border-violet-500 w-full transition-colors"
                                 />
+                                {searchQuery && (
+                                    <button
+                                        onClick={() => setSearchQuery('')}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                )}
                             </div>
+
 
                             {/* Color Filter */}
                             <div className="flex items-center gap-2">
@@ -272,6 +330,40 @@ export default function CollectionPage() {
                                     Clear all filters
                                 </button>
                             )}
+                            {/* Sort Dropdown */}
+                            {/* Sort Dropdown */}
+                            <div className="relative group">
+                                <button className="flex items-center gap-2 text-slate-400 hover:text-slate-200 transition-colors text-sm font-medium py-2">
+                                    <ArrowDownUp className="w-4 h-4" />
+                                    <span className="hidden xl:inline">Sort</span>
+                                </button>
+                                <div className="absolute left-0 top-full pt-2 w-40 hidden group-hover:block z-50">
+                                    <div className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden py-1">
+                                        <button onClick={() => setSortBy('name')} className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-700 ${sortBy === 'name' ? 'text-violet-400' : 'text-slate-300'}`}>Name (A-Z)</button>
+                                        <button onClick={() => setSortBy('cmc-asc')} className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-700 ${sortBy === 'cmc-asc' ? 'text-violet-400' : 'text-slate-300'}`}>Mana Value (Low)</button>
+                                        <button onClick={() => setSortBy('cmc-desc')} className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-700 ${sortBy === 'cmc-desc' ? 'text-violet-400' : 'text-slate-300'}`}>Mana Value (High)</button>
+                                        <button onClick={() => setSortBy('price-desc')} className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-700 ${sortBy === 'price-desc' ? 'text-violet-400' : 'text-slate-300'}`}>Price (High)</button>
+                                        <button onClick={() => setSortBy('price-asc')} className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-700 ${sortBy === 'price-asc' ? 'text-violet-400' : 'text-slate-300'}`}>Price (Low)</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Currency Dropdown */}
+                            <div className="relative group">
+                                <button className="flex items-center gap-2 text-slate-400 hover:text-slate-200 transition-colors text-sm font-medium uppercase min-w-[3ch] py-2">
+                                    <DollarSign className="w-4 h-4" />
+                                    {currency === 'cad' ? 'CAD' : currency}
+                                </button>
+                                <div className="absolute left-0 top-full pt-2 w-32 hidden group-hover:block z-50">
+                                    <div className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden py-1">
+                                        <button onClick={() => setCurrency('usd')} className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-700 ${currency === 'usd' ? 'text-violet-400' : 'text-slate-300'}`}>TCGPlayer ($)</button>
+                                        <button onClick={() => setCurrency('eur')} className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-700 ${currency === 'eur' ? 'text-violet-400' : 'text-slate-300'}`}>Cardmarket (€)</button>
+                                        <button onClick={() => setCurrency('tix')} className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-700 ${currency === 'tix' ? 'text-violet-400' : 'text-slate-300'}`}>MTGO (TIX)</button>
+                                        <button onClick={() => setCurrency('cad')} className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-700 ${currency === 'cad' ? 'text-violet-400' : 'text-slate-300'}`}>CAD (approx)</button>
+                                    </div>
+                                </div>
+                            </div>
+
                         </div>
                     </div>
                 </div>
@@ -304,6 +396,7 @@ export default function CollectionPage() {
                                     setIsModalOpen(true);
                                 }}
                                 actionLabel="view"
+                                currency={currency}
                             />
                         )}
                     </div>

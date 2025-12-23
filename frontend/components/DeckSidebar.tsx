@@ -9,14 +9,14 @@ import { SaltMeter } from './SaltMeter';
 interface DeckSidebarProps {
     deck: Deck;
     onRemoveCard: (card: CollectionCard) => void;
-    onRemoveCommander: () => void;
+    onRemoveCommander: (cmdr: any) => void;
     onRemoveMissingCard: (cardName: string) => void;
     onClearDeck: () => void;
 }
 
 export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMissingCard, onClearDeck }: DeckSidebarProps) {
     const [hoveredCard, setHoveredCard] = useState<CollectionCard | null>(null);
-    const totalCards = deck.cards.reduce((acc, card) => acc + 1, 0) + (deck.commander ? 1 : 0);
+    const totalCards = deck.cards.reduce((acc, card) => acc + 1, 0) + (deck.commanders?.length || 0);
 
     // Group cards by type
     const groupedCards = deck.cards.reduce((acc, card) => {
@@ -43,7 +43,7 @@ export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMis
         }, {} as Record<string, number>);
 
         const content = [
-            deck.commander ? `1 ${deck.commander.name}` : '',
+            ...(deck.commanders || []).map(c => `1 ${c.name}`),
             ...Object.entries(cardCounts).map(([name, count]) => `${count} ${name}`),
         ].filter(Boolean).join('\n');
 
@@ -51,8 +51,8 @@ export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMis
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        const filename = deck.commander
-            ? `${deck.commander.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_deck.txt`
+        const filename = deck.commanders && deck.commanders.length > 0
+            ? `${deck.commanders[0].name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_deck.txt`
             : 'commander_deck.txt';
         a.download = filename;
         a.click();
@@ -97,23 +97,27 @@ export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMis
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                    {/* Commander Section */}
+                    {/* Commanders Section */}
                     <div className="space-y-2">
-                        <h3 className="text-xs font-semibold text-violet-400 uppercase tracking-wider">Commander</h3>
-                        {deck.commander ? (
-                            <div className="relative group">
-                                <div className="flex items-center gap-3 p-2 bg-violet-500/10 border border-violet-500/30 rounded-lg">
-                                    {deck.commander.image_uris?.art_crop && (
-                                        <img src={deck.commander.image_uris.art_crop} alt="" className="w-10 h-10 rounded-full object-cover" />
-                                    )}
-                                    <span className="text-sm font-medium text-violet-200 truncate flex-1">{deck.commander.name}</span>
-                                    <button
-                                        onClick={onRemoveCommander}
-                                        className="text-slate-500 hover:text-red-400 transition-colors p-1"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
-                                </div>
+                        <h3 className="text-xs font-semibold text-violet-400 uppercase tracking-wider">Commanders</h3>
+                        {deck.commanders && deck.commanders.length > 0 ? (
+                            <div className="space-y-2">
+                                {deck.commanders.map((cmdr, idx) => (
+                                    <div key={idx} className="relative group">
+                                        <div className="flex items-center gap-3 p-2 bg-violet-500/10 border border-violet-500/30 rounded-lg">
+                                            {cmdr.image_uris?.art_crop && (
+                                                <img src={cmdr.image_uris.art_crop} alt="" className="w-10 h-10 rounded-full object-cover" />
+                                            )}
+                                            <span className="text-sm font-medium text-violet-200 truncate flex-1">{cmdr.name}</span>
+                                            <button
+                                                onClick={() => onRemoveCommander(cmdr)}
+                                                className="text-slate-500 hover:text-red-400 transition-colors p-1"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         ) : (
                             <div className="text-sm text-slate-600 italic px-2">No commander selected</div>
